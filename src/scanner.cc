@@ -80,9 +80,7 @@ class mem {
 
 public:
   R operator()(P input) {
-    typename std::map<P,R>::iterator it;
-
-    it = mem_map.find(input);
+    auto it = mem_map.find(input);
     if (it != mem_map.end()) {
       return it->second;
     } else {
@@ -362,7 +360,8 @@ namespace cond {
 
 Condition pure(bool c) { return const_<State&>(c); }
 
-Peek eq(uint32_t target) { return [=](uint32_t c) { return target == static_cast<uint32_t>(c); }; }
+Peek eq_slow(uint32_t target) { return [=](uint32_t c) { return target == static_cast<uint32_t>(c); }; }
+mem<uint32_t, Peek, eq_slow> eq;
 
 bool varid_start_char(const uint32_t c) { return eq('_')(c) || iswlower(c); }
 
@@ -1506,7 +1505,7 @@ Parser newline_token(uint32_t indent) {
 /**
  * To be called after parsing a newline, with the indent of the next line as argument.
  */
-Parser newline(uint32_t indent) {
+Parser newline_slow(uint32_t indent) {
   return
     eof +
     initialize(indent) +
@@ -1517,6 +1516,8 @@ Parser newline(uint32_t indent) {
     newline_indent(indent)
     ;
 }
+
+mem<uint32_t, Parser, newline_slow> newline;
 
 /**
  * Parsers that have to run when the next non-space character is not a newline:

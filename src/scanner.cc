@@ -610,20 +610,22 @@ Condition valid_splice = peek_with(cond::varid_start_char) | peek('(');
 namespace symbolic {
 
 enum Symbolic: uint16_t {
-  con,
-  op,
-  splice,
-  strict,
-  star,
-  tilde,
-  implicit,
-  modifier,
-  minus,
-  unboxed_tuple_close,
-  bar,
-  comment,
-  invalid,
+  con = 0,
+  op = 1,
+  splice = 2,
+  strict = 3,
+  star = 4,
+  tilde = 5,
+  implicit = 6,
+  modifier = 7,
+  minus = 8,
+  unboxed_tuple_close = 9,
+  bar = 10,
+  comment = 11,
+  invalid = 12,
 };
+
+const int num_symbolics = 13;
 
 bool success(Symbolic type) { return type == Symbolic::con || type == Symbolic::op; }
 
@@ -1286,7 +1288,7 @@ Parser symop_marked(Symbolic type) {
  *
  * Otherwise succeed with `Sym::tyconsym` or `Sym::varsym` if they are valid.
  */
-Parser symop(Symbolic type) {
+Parser symop_prime(Symbolic type) {
   return
     when(type == Symbolic::bar)(
       sym(Sym::bar)(mark("bar") + finish(Sym::bar, "bar")) +
@@ -1299,6 +1301,14 @@ Parser symop(Symbolic type) {
     finish_if_valid(Sym::varsym, "symop") +
     fail
     ;
+}
+
+vector<Parser> symop_memo;
+Parser symop(Symbolic type) {
+  if (!symop_memo[type]) {
+    symop_memo[type] = symop_prime(type);
+  }
+  return symop_memo[type];
 }
 
 /**
@@ -1610,7 +1620,10 @@ extern "C" {
 /**
  * This function allocates the persistent state of the parser that is passed into the other API functions.
  */
-void *tree_sitter_haskell_external_scanner_create() { return new vector<uint16_t>(); }
+void *tree_sitter_haskell_external_scanner_create() {
+  logic::symop_memo.resize(symbolic::num_symbolics);
+  return new vector<uint16_t>();
+}
 
 /**
  * Main logic entry point.

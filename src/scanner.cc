@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <string>
 #include <iterator>
+#include <map>
 
 using namespace std;
 
@@ -72,6 +73,25 @@ Log & operator<<(Log & l, Endl) {
   if (debug) cerr << endl;
   return l;
 }
+
+template <typename P, typename R, R (*calc)(P)>
+class mem {
+  std::map<P,R> mem_map;
+
+public:
+  R operator()(P input) {
+    typename std::map<P,R>::iterator it;
+
+    it = mem_map.find(input);
+    if (it != mem_map.end()) {
+      return it->second;
+    } else {
+      R output = calc(input);
+      mem_map[input] = output;
+      return output;
+    }
+  }
+};
 
 template<class A, class B> A fst(pair<A, B> p) { return p.first; }
 
@@ -1288,7 +1308,7 @@ Parser symop_marked(Symbolic type) {
  *
  * Otherwise succeed with `Sym::tyconsym` or `Sym::varsym` if they are valid.
  */
-Parser symop_prime(Symbolic type) {
+Parser symop_slow(Symbolic type) {
   return
     when(type == Symbolic::bar)(
       sym(Sym::bar)(mark("bar") + finish(Sym::bar, "bar")) +
@@ -1303,13 +1323,8 @@ Parser symop_prime(Symbolic type) {
     ;
 }
 
-vector<Parser> symop_memo;
-Parser symop(Symbolic type) {
-  if (!symop_memo[type]) {
-    symop_memo[type] = symop_prime(type);
-  }
-  return symop_memo[type];
-}
+mem<Symbolic, Parser, symop_slow> symop;
+
 
 /**
  * Parse an inline comment if the next chars are two or more minuses and the char after the last minus is not
@@ -1430,7 +1445,7 @@ Parser inline_tokens =
  *
  * This pushes the indentation of the first non-whitespace character onto the stack.
  */
-Parser layout_start(uint32_t column) {
+Parser layout_start_slow(uint32_t column) {
   return sym(Sym::start)(
     peek('{')(brace) +
     peek('-')(minus) +
@@ -1438,6 +1453,8 @@ Parser layout_start(uint32_t column) {
     finish(Sym::start, "layout_start")
   );
 }
+
+mem<uint32_t, Parser, layout_start_slow> layout_start;
 
 /**
  * After a layout has ended, the originator might need to be terminated by semicolon as well, but since the layout end
@@ -1510,7 +1527,7 @@ Parser newline(uint32_t indent) {
  *   - Tokens `where`, `in`, `$`, `)`, `]`, `,`
  *   - comments
  */
-Parser immediate(uint32_t column) {
+Parser immediate_slow(uint32_t column) {
   return
     layout_start(column) +
     post_end_semicolon(column) +
@@ -1518,6 +1535,9 @@ Parser immediate(uint32_t column) {
     inline_tokens
     ;
 }
+
+mem<uint32_t, Parser, immediate_slow> immediate;
+
 
 /**
  * Parsers that have to run _before_ parsing whitespace:
@@ -1621,7 +1641,6 @@ extern "C" {
  * This function allocates the persistent state of the parser that is passed into the other API functions.
  */
 void *tree_sitter_haskell_external_scanner_create() {
-  logic::symop_memo.resize(symbolic::num_symbolics);
   return new vector<uint16_t>();
 }
 

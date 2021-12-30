@@ -517,6 +517,9 @@ Condition same_indent(uint32_t indent) { return check_indent([=](auto i) { retur
  * Require that the current line's indent is smaller than the containing layout's, so the layout may be ended.
  */
 Condition smaller_indent(uint32_t indent) { return check_indent([=](auto i) { return indent < i; }); }
+bool smaller_indent_v2(uint32_t indent, State &state) {
+  return indent_exists(state) && indent < state.indents.back();
+}
 
 Condition indent_lesseq(uint32_t indent) { return check_indent([=](auto i) { return indent <= i; }); }
 
@@ -1465,45 +1468,50 @@ Parser post_end_semicolon(uint32_t column) {
 /**
  * Like `post_end_semicolon`, but for layout end.
  */
-Parser repeat_end(uint32_t column) {
-  return sym(Sym::end)(iff(cond::smaller_indent(column))(layout_end("repeat_end")));
+Result repeat_end(uint32_t column, State &state) {
+  if (state.symbols[Sym::end] && cond::smaller_indent_v2(column, state)) {
+    return layout_end("repeat_end")(state);
+  } else {
+    return result::cont;
+  }
 }
 
 /**
  * Rules that decide based on the indent of the next line.
  */
-Parser newline_indent(uint32_t indent) {
+Result newline_indent(uint32_t indent, State &state) {
+  // TODO(414owen): fix
   return
-    dedent(indent) +
+    (dedent(indent) +
     close_layout_in_list +
-    newline_semicolon(indent);
+    newline_semicolon(indent))(state);
 }
 
 /**
  * Rules that decide based on the first token on the next line.
  */
-Parser newline_token(uint32_t indent) {
+Result newline_token(uint32_t indent, State &state) {
+  // TODO(414owen): fix
   return
-    peeks(cond::symbolic | cond::ticked)(with(read_symop)(newline_infix(indent)) + fail) +
+    (peeks(cond::symbolic | cond::ticked)(with(read_symop)(newline_infix(indent)) + fail) +
     newline_where(indent) +
     peek('i')(in)
-    ;
+    )(state);
 }
 
 /**
  * To be called after parsing a newline, with the indent of the next line as argument.
  */
 Result newline(uint32_t indent, State &state) {
-  // TODO(414owen): fix
-  return
-    (eof +
+  Result res = (eof +
     initialize(indent) +
     cpp_workaround +
-    comment +
-    mark("newline") +
-    newline_token(indent) +
-    newline_indent(indent)
-    )(state);
+    comment)(state);
+  if (res.finished) return res;
+  util::mark("newline", state);
+  res = newline_token(indent, state);
+  if (res.finished) return res;
+  return newline_indent(indent, state);
 }
 
 /**
@@ -1520,7 +1528,7 @@ Result immediate(uint32_t column, State &state) {
   if (res.finished) return res;
   res = post_end_semicolon(column)(state);
   if (res.finished) return res;
-  res = repeat_end(column)(state);
+  res = repeat_end(column, state);
   if (res.finished) return res;
   return inline_tokens(state);
 }

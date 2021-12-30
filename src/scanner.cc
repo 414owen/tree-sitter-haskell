@@ -228,11 +228,13 @@ using syms::Sym;
 struct State {
   TSLexer *lexer;
   const bool *symbols;
-  vector<uint16_t> & indents;
+  vector<uint16_t> &indents;
   int marked;
   string marked_by;
 
-  State(TSLexer *l, const bool *vs, vector<uint16_t> & is):
+  State();
+
+  State(TSLexer *l, const bool *vs, vector<uint16_t> &is):
     lexer(l),
     symbols(vs),
     indents(is),
@@ -241,7 +243,9 @@ struct State {
   {}
 };
 
-const string format_indents(State & state) {
+State state_sing;
+
+const string format_indents(State &state) {
   if (state.indents.empty()) return "empty";
   string s;
   for (auto i : state.indents) {
@@ -251,7 +255,7 @@ const string format_indents(State & state) {
   return s;
 }
 
-ostream & operator<<(ostream & out, State & state) {
+ostream & operator<<(ostream & out, State &state) {
   return out << "State { syms = " << syms::valid(state.symbols) <<
     ", indents = " << format_indents(state) <<
     " }";
@@ -1093,20 +1097,20 @@ Parser eof = peek(0)(sym(Sym::empty)(finish(Sym::empty, "eof")) + end_or_semicol
  *
  * If there is a `module` declaration, this will be handled by the grammar.
  */
-Result initialize(uint32_t column, State &state) {
-  if (cond::uninitialized(state)) {
-    util::mark("initialize", state);
-    Result res = token("module")(fail)(state);
+Result initialize(uint32_t column) {
+  if (cond::uninitialized(state_sing)) {
+    util::mark("initialize", state_sing);
+    Result res = token("module")(fail)(state_sing);
     if (res.finished) return res;
-    return (push(column) + finish(Sym::indent, "init"))(state);
+    return (push(column) + finish(Sym::indent, "init"))(state_sing);
   }
   return result::cont;
 }
 
-Result initialize_init(State &state) {
-  if (cond::uninitialized(state)) {
-    uint32_t col = state::column(state);
-    if (col == 0) return initialize(col, state);
+Result initialize_init(void) {
+  if (cond::uninitialized(state_sing)) {
+    uint32_t col = state::column(state_sing);
+    if (col == 0) return initialize(col);
   };
   return result::cont;
 }
@@ -1147,7 +1151,7 @@ Parser cpp_workaround =
   consume('#')(
     seq("el")(consume_until("#endif") + eof + finish(Sym::cpp, "cpp-else")) +
     cpp_consume +
-    mark("cpp_workaround") +
+    parser::mark("cpp_workaround") +
     finish(Sym::cpp, "cpp")
   );
 
@@ -1169,7 +1173,7 @@ Parser dedent(uint32_t indent) { return iff(cond::smaller_indent(indent))(layout
  */
 Parser newline_where(uint32_t indent) {
   return iff(cond::is_newline_where(indent))(
-    mark("newline_where") + token("where")(end_or_semicolon("newline_where")) + fail
+    parser::mark("newline_where") + token("where")(end_or_semicolon("newline_where")) + fail
   );
 }
 
@@ -1208,12 +1212,12 @@ function<Parser(Symbolic)> newline_infix(uint32_t indent) {
  *
  * Necessary because `is_newline_where` needs to know that no `where` may follow.
  */
-Parser where = token("where")(sym(Sym::where)(mark("where") + finish(Sym::where, "where")) + layout_end("where"));
+Parser where = token("where")(sym(Sym::where)(parser::mark("where") + finish(Sym::where, "where")) + layout_end("where"));
 
 /**
  * An `in` token ends the layout openend by a `let` and its nested layouts.
  */
-Parser in = sym(Sym::in)(token("in")(mark("in") + effect(pop) + finish(Sym::in, "in")));
+Parser in = sym(Sym::in)(token("in")(parser::mark("in") + effect(pop) + finish(Sym::in, "in")));
 
 /**
  * An `else` token may end a layout opened in the body of a `then`.
@@ -1226,7 +1230,7 @@ Parser else_ = token("else")(end_or_semicolon("else"));
  */
 Parser qq_start =
   parser::advance +
-  mark("qq_start") +
+  parser::mark("qq_start") +
   consume_while(cond::quoter_char) +
   peek('|')(finish(Sym::qq_start, "qq_start"))
   ;
@@ -1235,7 +1239,7 @@ Parser qq_body =
   [](State & state) {
     auto p =
       eof +
-      mark("qq_body") +
+      parser::mark("qq_body") +
       either(
           cond::consume('\\'),
           parser::advance,
@@ -1250,19 +1254,19 @@ Parser qq_body =
  */
 Parser splice =
   iff(cond::peek_with(cond::varid_start_char) | cond::peek('('))(
-    mark("splice") + finish_if_valid(Sym::splice, "splice") + fail
+    parser::mark("splice") + finish_if_valid(Sym::splice, "splice") + fail
   );
 
 Parser unboxed_tuple_close =
   sym(Sym::unboxed_tuple_close)(consume(')')(
-    mark("unboxed_tuple_close") + finish(Sym::unboxed_tuple_close, "unboxed_tuple_close")
+    parser::mark("unboxed_tuple_close") + finish(Sym::unboxed_tuple_close, "unboxed_tuple_close")
   ));
 
 /**
  * Consume all characters up to the end of line and succeed with `Sym::commment`.
  */
 Parser inline_comment =
-  consume_while(not_(cond::newline)) + mark("inline_comment") + finish(Sym::comment, "inline_comment");
+  consume_while(not_(cond::newline)) + parser::mark("inline_comment") + finish(Sym::comment, "inline_comment");
 
 /**
  * Parse a sequence of symbolic characters and convert it into the enum `Symbolic`.
@@ -1314,11 +1318,11 @@ Parser symop_marked(Symbolic type) {
 Parser symop(Symbolic type) {
   return
     when(type == Symbolic::bar)(
-      sym(Sym::bar)(mark("bar") + finish(Sym::bar, "bar")) +
+      sym(Sym::bar)(parser::mark("bar") + finish(Sym::bar, "bar")) +
       layout_end("bar") +
       fail
     ) +
-    mark("symop") +
+    parser::mark("symop") +
     symop_marked(type) +
     finish_if_valid(Sym::tyconsym, "symop") +
     finish_if_valid(Sym::varsym, "symop") +
@@ -1340,7 +1344,7 @@ Parser minus = seq("--")(consume_while(cond::eq('-')) + peeks(cond::symbolic)(fa
 /**
  * Succeed for a comment.
  */
-Parser multiline_comment_success = mark("multiline_comment") + finish(Sym::comment, "multiline_comment");
+Parser multiline_comment_success = parser::mark("multiline_comment") + finish(Sym::comment, "multiline_comment");
 
 Parser multiline_comment(uint16_t);
 
@@ -1405,7 +1409,7 @@ Parser comment = peek('-')(minus + fail) + peek('{')(brace);
 Parser close_layout_in_list =
   peek(']')(layout_end("bracket")) +
   consume(',')(
-    sym(Sym::comma)(mark("comma") + finish(Sym::comma, "comma")) +
+    sym(Sym::comma)(parser::mark("comma") + finish(Sym::comma, "comma")) +
     layout_end("comma") +
     fail
   );
@@ -1427,7 +1431,7 @@ Parser inline_tokens =
   peek('e')(else_ + fail) +
   peek(')')(layout_end(")") + fail) +
   sym(Sym::qq_start)(peek('[')(qq_start + fail)) +
-  sym(Sym::qq_bar)(consume('|')(mark("qq_bar") + finish(Sym::qq_bar, "qq_bar"))) +
+  sym(Sym::qq_bar)(consume('|')(parser::mark("qq_bar") + finish(Sym::qq_bar, "qq_bar"))) +
   peeks(cond::symbolic)(with(read_symop)(symop)) +
   comment +
   close_layout_in_list
@@ -1513,7 +1517,7 @@ Result newline_token(uint32_t indent, State &state) {
 Result newline(uint32_t indent, State &state) {
   Result res = eof(state);
   if (res.finished) return res;
-  res = initialize(indent, state);
+  res = initialize(indent);
   if (res.finished) return res;
   res = (cpp_workaround +
     comment)(state);
@@ -1557,7 +1561,7 @@ Result init(State &state) {
   if (res.finished) return res;
   res = iff(cond::after_error)(fail)(state);
   if (res.finished) return res;
-  res = initialize_init(state);
+  res = initialize_init();
   if (res.finished) return res;
   res = dot(state);
   if (res.finished) return res;
@@ -1609,7 +1613,7 @@ void debug_lookahead(State & state) {
   for (;;) {
     if (cond::peekws(state) || cond::peekeof(state)) break;
     else {
-      s += state::next_char(state);
+      s += state::next_char(state_sing);
       state::advance(state);
     }
   }
@@ -1629,18 +1633,18 @@ void debug_lookahead(State & state) {
   *
   * If the `debug_next_token` flag is set, the next token will be printed.
   */
-bool eval(parser::NewParser chk, State & state) {
-  auto result = chk(state);
-  if (debug_next_token) debug_lookahead(state);
+bool eval(parser::NewParser chk) {
+  auto result = chk(state_sing);
+  if (debug_next_token) debug_lookahead(state_sing);
   if (result.finished && result.sym != Sym::fail) {
     if (debug) {
       auto col =
-        state.marked == -1 ?
-        to_string(state::column(state)) :
-        state.marked_by + "@" + to_string(state.marked);
+        state_sing.marked == -1 ?
+        to_string(state::column(state_sing)) :
+        state_sing.marked_by + "@" + to_string(state_sing.marked);
       logger("result: " + syms::name(result.sym) + ", " + col);
     }
-    state.lexer->result_symbol = result.sym;
+    state_sing.lexer->result_symbol = result.sym;
     return true;
   } else return false;
 }
@@ -1663,10 +1667,10 @@ void *tree_sitter_haskell_external_scanner_create() { return new vector<uint16_t
  * Since the state is a singular vector, it can just be cast and used directly.
  */
 bool tree_sitter_haskell_external_scanner_scan(void *payload, TSLexer *lexer, const bool *syms) {
-  auto *indents = static_cast<vector<uint16_t> *>(payload);
-  auto state = State(lexer, syms, *indents);
-  logger(state);
-  return eval::eval(logic::all, state);
+  vector<uint16_t> *indents = static_cast<vector<uint16_t> *>(payload);
+  state_sing = State(lexer, syms, *indents);
+  logger(state_sing);
+  return eval::eval(logic::all);
 }
 
 /**
@@ -1676,7 +1680,7 @@ bool tree_sitter_haskell_external_scanner_scan(void *payload, TSLexer *lexer, co
  */
 unsigned tree_sitter_haskell_external_scanner_serialize(void *payload, char *buffer) {
   auto *state = static_cast<vector<uint16_t> *>(payload);
-    copy(state->begin(), state->end(), buffer);
+  copy(state->begin(), state->end(), buffer);
   return state->size();
 }
 

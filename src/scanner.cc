@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <string>
+#include <sstream>
 
 // short circuit
 #define SHORT_SCANNER if (res.finished) return res;
@@ -150,7 +151,12 @@ static string name(Sym t) { return t < names_size ? names[t] : "unknown"; }
  * The parser appears to call `scan` with all symbols declared as valid directly after it encountered an error, so
  * this function is used to detect them.
  */
-static bool all(const bool *syms) { return std::all_of(syms, syms + empty, [](bool a) { return a; }); }
+static bool all(const bool *syms) {
+  for (int i = 0; i <= empty; i++) {
+    if (!syms[i]) return false;
+  }
+  return true;
+}
 
 /**
  * Append a symbol's string representation to the string `s` if it is valid.
@@ -206,11 +212,15 @@ struct State {
 
 static const string format_indents(State & state) {
   if (state.indents.empty()) return "empty";
-  string s;
-  for (auto i : state.indents) {
-    if (!s.empty()) s += "-";
-    s += std::to_string(i);
+  stringstream ss;
+  bool empty = true;
+  for (int i = 0; i < state.indents.size(); i++) {
+    if (!empty) ss << '-';
+    ss << state.indents[i];
+    empty = false;
   }
+  string s;
+  ss >> s;
   return s;
 }
 
@@ -283,7 +293,8 @@ static bool varid_char(const uint32_t c) {
 static bool quoter_char(const uint32_t c) { return varid_char(c) || c == '.'; };
 
 static bool seq(const string &s, State &state) {
-  for (auto &c : s) {
+  for (int i = 0; i < s.size(); i++) {
+    uint32_t c = s[i];
     uint32_t c2 = PEEK;
     if (c != c2) return false;
     S_ADVANCE;
@@ -305,8 +316,8 @@ static void consume_until(string target, State &state) {
   }
 }
 
-static u32string read_string(bool (*cond)(uint32_t), State &state) {
-  u32string s;
+static string read_string(bool (*cond)(uint32_t), State &state) {
+  string s;
   uint32_t c = PEEK;
   while (cond(c)) {
     s += static_cast<uint32_t>(c);
@@ -569,7 +580,7 @@ static bool expression_op(Symbolic type) {
  *
  * Hashes followed by a varid start character `#foo` are labels.
  */
-static Symbolic symop(u32string s, State &state) {
+static Symbolic symop(string s, State &state) {
   if (s.empty()) return Symbolic::invalid;
   uint32_t c = s[0];
   if (s.size() == 1) {

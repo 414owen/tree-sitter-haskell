@@ -5,7 +5,6 @@
 #include <iostream>
 #include <algorithm>
 #include <string>
-#include <sstream>
 
 // short circuit
 #define SHORT_SCANNER if (res.finished) return res;
@@ -210,16 +209,24 @@ struct State {
   {}
 };
 
+string itoa(int val, int base){
+	static char buf[32] = {0};
+	int i = 30;
+	for(; val && i ; --i, val /= base)
+		buf[i] = "0123456789abcdef"[val % base];
+	return string(&buf[i+1]);
+}
+
 static const string format_indents(State & state) {
   if (state.indents.empty()) return "empty";
-  ostringstream ss;
   bool empty = true;
+  string s;
   for (int i = 0; i < state.indents.size(); i++) {
-    if (!empty) ss << '-';
-    ss << state.indents[i];
+    if (!empty) s += '-';
+    s += itoa(state.indents[i], 10);
     empty = false;
   }
-  return ss.str();
+  return s;
 }
 
 ostream & operator<<(ostream & out, State & state) {
@@ -1568,6 +1575,7 @@ static void debug_lookahead(State & state) {
   if (!s.empty()) logger("next: " + s);
 }
 
+
 /**
   * The main function of the parsing machinery, executing the parser by passing in the initial state and analyzing the
   * result.
@@ -1586,10 +1594,10 @@ static bool eval(parser::NewParser chk, State & state) {
   if (debug_next_token) debug_lookahead(state);
   if (result.finished && result.sym != syms::fail) {
     if (debug) {
-      ostringstream ss;
-      if (state.marked == -1) ss << state::column(state);
-      else ss << state.marked_by << "@" << state.marked;
-      logger("result: " + syms::name(result.sym) + ", " + ss.str());
+      string s;
+      if (state.marked == -1) s += itoa(state::column(state), 10);
+      else s += state.marked_by; s += '@'; s += itoa(state.marked, 10);
+      logger("result: " + syms::name(result.sym) + ", " + s);
     }
     state.lexer->result_symbol = result.sym;
     return true;
